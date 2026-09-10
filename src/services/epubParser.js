@@ -354,6 +354,19 @@ export async function extractSingleChapter(epubBlob, opfDir = '', chapterHref, d
     }
   }
 
+  // 1. Bóc tách các thẻ đoạn văn (<p>, <div>...) trước khi loại bỏ bớt thẻ tiêu đề
+  const pElements = chapterDoc.body ? chapterDoc.body.querySelectorAll('p, div.paragraph, section > p') : [];
+  const paragraphTexts = [];
+
+  if (pElements.length > 0) {
+    pElements.forEach(p => {
+      const text = p.textContent.replace(/\s+/g, ' ').trim();
+      if (text && text !== chapterTitle) {
+        paragraphTexts.push(text);
+      }
+    });
+  }
+
   // Loại bỏ các thẻ tiêu đề (H1, H2, H3, Title) và thẻ phụ khỏi DOM body để không lặp văn bản khi đọc
   const selectorsToRemove = ['script', 'style', 'head', 'nav', 'svg', 'iframe', 'h1', 'h2', 'h3', 'title'];
   selectorsToRemove.forEach(sel => {
@@ -367,14 +380,44 @@ export async function extractSingleChapter(epubBlob, opfDir = '', chapterHref, d
     cleanText = cleanText.substring(chapterTitle.length).trim();
   }
 
-  const bodySentences = chunkTextIntoSentences(cleanText);
+  // Fallback nếu không có thẻ <p> hoặc <div>
+  if (paragraphTexts.length === 0 && cleanText) {
+    const rawParagraphs = cleanText.split(/\n\s*\n/);
+    for (const rawP of rawParagraphs) {
+      const cleaned = rawP.replace(/\s+/g, ' ').trim();
+      if (cleaned && cleaned !== chapterTitle) {
+        paragraphTexts.push(cleaned);
+      }
+    }
+    if (paragraphTexts.length === 0) {
+      paragraphTexts.push(cleanText);
+    }
+  }
 
   // ĐẶT TÊN CHƯƠNG LÀM CÂU ĐẦU TIÊN (SENTENCE 0) ĐỂ TTS ĐỌC XƯỚNG TÊN CHƯƠNG
-  const sentences = [chapterTitle, ...bodySentences];
+  const sentences = [chapterTitle];
+  const paragraphs = [];
+
+  for (const pText of paragraphTexts) {
+    const pSentences = chunkTextIntoSentences(pText);
+    if (pSentences.length > 0) {
+      const pIndices = [];
+      for (const s of pSentences) {
+        if (s === chapterTitle && sentences.length === 1) continue;
+        const currentIdx = sentences.length;
+        sentences.push(s);
+        pIndices.push(currentIdx);
+      }
+      if (pIndices.length > 0) {
+        paragraphs.push(pIndices);
+      }
+    }
+  }
 
   return {
     title: chapterTitle,
     sentences,
+    paragraphs,
     rawText: cleanText,
     images
   };

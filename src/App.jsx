@@ -33,7 +33,8 @@ export default function App() {
     theme: 'dark',
     sentencePause: 0,
     lineHeight: 2.0,
-    letterSpacing: 0
+    letterSpacing: 0,
+    paragraphSpacing: 0.6
   });
 
   const [isTocOpen, setIsTocOpen] = useState(false);
@@ -216,6 +217,7 @@ export default function App() {
             fontFamily={settings.fontFamily}
             lineHeight={settings.lineHeight ?? 2.0}
             letterSpacing={settings.letterSpacing ?? 0}
+            paragraphSpacing={settings.paragraphSpacing ?? 0.6}
             theme={settings.theme || 'dark'}
             onChangeTheme={(newTheme) => updateSettings({ theme: newTheme })}
             onSentenceClick={handleSentenceClick}
@@ -268,11 +270,12 @@ export default function App() {
         selectedVoiceURI={tts.selectedVoiceURI}
         rate={tts.rate}
         pitch={tts.pitch}
-        sentencePause={settings.sentencePause ?? 300}
+        sentencePause={settings.sentencePause ?? 0}
         fontSize={settings.fontSize}
         fontFamily={settings.fontFamily}
         lineHeight={settings.lineHeight ?? 2.0}
         letterSpacing={settings.letterSpacing ?? 0}
+        paragraphSpacing={settings.paragraphSpacing ?? 0.6}
         theme={settings.theme || 'dark'}
         onChangeVoice={(voiceURI) => {
           tts.changeVoice(voiceURI);
@@ -294,6 +297,7 @@ export default function App() {
         onChangeFontFamily={(val) => updateSettings({ fontFamily: val })}
         onChangeLineHeight={(val) => updateSettings({ lineHeight: val })}
         onChangeLetterSpacing={(val) => updateSettings({ letterSpacing: val })}
+        onChangeParagraphSpacing={(val) => updateSettings({ paragraphSpacing: val })}
         onChangeTheme={(val) => updateSettings({ theme: val })}
       />
 

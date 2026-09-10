@@ -14,6 +14,7 @@ export function SettingsModal({
   fontFamily,
   lineHeight = 2.0,
   letterSpacing = 0,
+  paragraphSpacing = 0.6,
   theme = 'dark',
   onChangeVoice,
   onChangeRate,
@@ -23,6 +24,7 @@ export function SettingsModal({
   onChangeFontFamily,
   onChangeLineHeight,
   onChangeLetterSpacing,
+  onChangeParagraphSpacing,
   onChangeTheme
 }) {
   const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
@@ -201,6 +203,38 @@ export function SettingsModal({
                   }`}
                 >
                   {lh}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Paragraph Spacing Config */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <AlignJustify className="w-4 h-4 text-emerald-400" />
+                <span>Khoảng cách giữa các đoạn văn</span>
+              </label>
+              <span className="text-xs font-mono text-emerald-400 font-bold">{paragraphSpacing ?? 0.6}em</span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {[
+                { label: 'Hẹp (0.3em)', val: 0.3 },
+                { label: 'Gần (0.5em)', val: 0.5 },
+                { label: 'Vừa (0.75em)', val: 0.75 },
+                { label: 'Chuẩn (1.0em)', val: 1.0 },
+                { label: 'Xa (1.5em)', val: 1.5 }
+              ].map((ps) => (
+                <button
+                  key={ps.val}
+                  onClick={() => onChangeParagraphSpacing && onChangeParagraphSpacing(ps.val)}
+                  className={`py-2 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                    (paragraphSpacing ?? 0.6) === ps.val
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:bg-neutral-800'
+                  }`}
+                >
+                  {ps.label}
                 </button>
               ))}
             </div>

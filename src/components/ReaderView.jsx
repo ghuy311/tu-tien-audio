@@ -14,6 +14,7 @@ export function ReaderView({
   fontFamily,
   lineHeight = 2.0,
   letterSpacing = 0,
+  paragraphSpacing = 0.6,
   theme = 'dark',
   onChangeTheme,
   onSentenceClick,
@@ -199,8 +200,32 @@ export function ReaderView({
               </div>
             )}
 
-            {chapterContent?.sentences && chapterContent.sentences.length > 1 ? (
-              // Bắt đầu hiển thị từ câu 1 trở đi (vì câu 0 là Tiêu đề chương nằm ở phần Tiêu đề phía trên)
+            {chapterContent?.paragraphs && chapterContent.paragraphs.length > 0 ? (
+              chapterContent.paragraphs.map((pIndices, pIdx) => (
+                <p key={pIdx} className="indent-6 text-justify leading-relaxed" style={{ marginBottom: `${paragraphSpacing}em` }}>
+                  {pIndices.map((sIdx) => {
+                    const sentence = chapterContent.sentences?.[sIdx];
+                    if (!sentence) return null;
+                    const isActive = sIdx === currentSentenceIndex;
+                    return (
+                      <span
+                        key={sIdx}
+                        ref={(el) => (sentenceRefs.current[sIdx] = el)}
+                        onClick={() => onSentenceClick(sIdx)}
+                        className={`inline cursor-pointer rounded py-0.5 px-1 transition-all duration-150 ${
+                          isActive
+                            ? 'reader-sentence-active shadow-xs'
+                            : 'hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        {sentence}{' '}
+                      </span>
+                    );
+                  })}
+                </p>
+              ))
+            ) : chapterContent?.sentences && chapterContent.sentences.length > 1 ? (
+              // Bắt đầu hiển thị từ câu 1 trở đi nếu không có cấu trúc đoạn
               chapterContent.sentences.slice(1).map((sentence, idx) => {
                 const sentenceActualIdx = idx + 1;
                 const isActive = sentenceActualIdx === currentSentenceIndex;
