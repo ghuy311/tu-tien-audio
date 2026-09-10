@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, List, Sliders, ChevronLeft, ChevronRight, AlertCircle, Loader2, Sun, Moon, BookOpen } from 'lucide-react';
+import { isJunkTitle } from '../services/epubParser';
 
 export function ReaderView({
   book,
@@ -11,6 +12,8 @@ export function ReaderView({
   hasVietnameseVoice,
   fontSize,
   fontFamily,
+  lineHeight = 2.0,
+  letterSpacing = 0,
   theme = 'dark',
   onChangeTheme,
   onSentenceClick,
@@ -22,6 +25,12 @@ export function ReaderView({
 }) {
   const sentenceRefs = useRef([]);
   const totalChapters = book?.toc?.length || 0;
+
+  const chapterTitle = useMemo(() => {
+    const title = chapterContent?.title || book?.toc?.[currentChapterIndex]?.title;
+    if (!isJunkTitle(title)) return title;
+    return `Chương ${currentChapterIndex + 1}`;
+  }, [chapterContent, book, currentChapterIndex]);
 
   useEffect(() => {
     if (currentSentenceIndex >= 0 && sentenceRefs.current[currentSentenceIndex]) {
@@ -47,10 +56,8 @@ export function ReaderView({
     );
   }
 
-  // Theme wrapper class
   const themeClass = `theme-${theme}`;
 
-  // Font family class
   const fontFamilyClass =
     fontFamily === 'lora'
       ? 'font-lora'
@@ -60,7 +67,7 @@ export function ReaderView({
       ? 'font-mono-reader'
       : 'font-inter';
 
-  const chapterTitle = chapterContent?.title || book.toc?.[currentChapterIndex]?.title || `Chương ${currentChapterIndex + 1}`;
+  const isTitleActive = currentSentenceIndex === 0;
 
   return (
     <div className={`min-h-screen pb-36 transition-colors duration-300 ${themeClass}`}>
@@ -124,7 +131,7 @@ export function ReaderView({
         </div>
       </header>
 
-      {/* Reader Page Area (Thiết kế khổ trang sách Kindle/Kobo) */}
+      {/* Reader Page Area */}
       <main className="max-w-2xl mx-auto px-5 sm:px-8 py-10">
         {!hasVietnameseVoice && (
           <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-200 text-xs flex items-start gap-3">
@@ -138,12 +145,20 @@ export function ReaderView({
           </div>
         )}
 
-        {/* Chapter Header in Book */}
+        {/* Chapter Header in Book (Highlighted when Sentence 0 Title is being spoken) */}
         <div className="mb-8 text-center border-b border-black/10 dark:border-white/10 pb-6">
           <span className="text-[11px] font-bold tracking-widest uppercase opacity-50 block mb-1">
             Chương {currentChapterIndex + 1} / {totalChapters}
           </span>
-          <h1 className={`${fontFamilyClass} text-2xl sm:text-3xl font-bold tracking-tight leading-snug`}>
+          <h1
+            ref={(el) => (sentenceRefs.current[0] = el)}
+            onClick={() => onSentenceClick(0)}
+            className={`${fontFamilyClass} text-2xl sm:text-3xl font-bold tracking-tight leading-snug cursor-pointer transition-all duration-200 inline-block p-2 rounded-xl ${
+              isTitleActive
+                ? 'reader-sentence-active shadow-sm'
+                : 'hover:opacity-80'
+            }`}
+          >
             {chapterTitle}
           </h1>
         </div>
@@ -155,17 +170,37 @@ export function ReaderView({
           </div>
         ) : (
           <article
-            className={`${fontFamilyClass} leading-[2.1] tracking-normal space-y-5 text-justify`}
-            style={{ fontSize: `${fontSize}px` }}
+            className={`${fontFamilyClass} space-y-5 text-justify`}
+            style={{
+              fontSize: `${fontSize}px`,
+              lineHeight: lineHeight,
+              letterSpacing: `${letterSpacing}px`
+            }}
           >
-            {chapterContent?.sentences && chapterContent.sentences.length > 0 ? (
-              chapterContent.sentences.map((sentence, idx) => {
-                const isActive = idx === currentSentenceIndex;
+            {/* Hiển thị hình ảnh minh họa / trang ảnh nếu có */}
+            {chapterContent?.images && chapterContent.images.length > 0 && (
+              <div className="my-6 space-y-6 flex flex-col items-center">
+                {chapterContent.images.map((imgUrl, i) => (
+                  <img
+                    key={i}
+                    src={imgUrl}
+                    alt={`Hình ảnh minh họa ${i + 1}`}
+                    className="max-w-full h-auto rounded-2xl shadow-xl border border-black/10 dark:border-white/10"
+                  />
+                ))}
+              </div>
+            )}
+
+            {chapterContent?.sentences && chapterContent.sentences.length > 1 ? (
+              // Bắt đầu hiển thị từ câu 1 trở đi (vì câu 0 là Tiêu đề chương nằm ở phần Tiêu đề phía trên)
+              chapterContent.sentences.slice(1).map((sentence, idx) => {
+                const sentenceActualIdx = idx + 1;
+                const isActive = sentenceActualIdx === currentSentenceIndex;
                 return (
                   <span
-                    key={idx}
-                    ref={(el) => (sentenceRefs.current[idx] = el)}
-                    onClick={() => onSentenceClick(idx)}
+                    key={sentenceActualIdx}
+                    ref={(el) => (sentenceRefs.current[sentenceActualIdx] = el)}
+                    onClick={() => onSentenceClick(sentenceActualIdx)}
                     className={`inline cursor-pointer rounded py-0.5 px-1 transition-all duration-150 ${
                       isActive
                         ? 'reader-sentence-active shadow-xs'
@@ -176,6 +211,12 @@ export function ReaderView({
                   </span>
                 );
               })
+            ) : chapterContent?.images && chapterContent.images.length > 0 ? (
+              <p className="opacity-60 italic py-6 text-center text-sm">
+                Trang này chứa hình ảnh minh họa (không có văn bản bài đọc).
+              </p>
+            ) : chapterContent?.sentences && chapterContent.sentences.length === 1 ? (
+              <p className="opacity-50 italic py-10 text-center">Đang phát tiêu đề chương.</p>
             ) : (
               <p className="opacity-50 italic py-10 text-center">Chương này không có văn bản đọc.</p>
             )}

@@ -15,7 +15,10 @@ export const DEFAULT_SETTINGS = {
   pitch: 1.0,
   fontSize: 19, // px
   fontFamily: 'lora', // 'lora' | 'merriweather' | 'inter' | 'mono-reader'
-  theme: 'dark' // 'dark' | 'sepia' | 'paper' | 'slate'
+  theme: 'dark', // 'dark' | 'sepia' | 'paper' | 'slate'
+  sentencePause: 300, // ms ngắt nghỉ giữa các câu (0, 300, 500, 1000, 1500)
+  lineHeight: 2.0, // chiều cao dòng (1.6 - 2.6)
+  letterSpacing: 0 // khoảng cách chữ px (0, 0.5, 1, 2)
 };
 
 export async function getSettings() {

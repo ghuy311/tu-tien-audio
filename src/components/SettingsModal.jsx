@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Mic, Gauge, Type, Info, Check, Palette } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Mic, Gauge, Type, Info, Check, Palette, Clock, MoveHorizontal, AlignJustify, Search } from 'lucide-react';
 import { isVietnameseVoice } from '../hooks/useTTS';
 
 export function SettingsModal({
@@ -9,19 +9,37 @@ export function SettingsModal({
   selectedVoiceURI,
   rate,
   pitch,
+  sentencePause = 300,
   fontSize,
   fontFamily,
+  lineHeight = 2.0,
+  letterSpacing = 0,
   theme = 'dark',
   onChangeVoice,
   onChangeRate,
   onChangePitch,
+  onChangeSentencePause,
   onChangeFontSize,
   onChangeFontFamily,
+  onChangeLineHeight,
+  onChangeLetterSpacing,
   onChangeTheme
 }) {
-  if (!isOpen) return null;
+  const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
 
-  const viVoicesCount = voices.filter(isVietnameseVoice).length;
+  const viVoicesCount = useMemo(() => {
+    return voices.filter(isVietnameseVoice).length;
+  }, [voices]);
+
+  const filteredVoices = useMemo(() => {
+    if (!voiceSearchQuery.trim()) return voices;
+    const q = voiceSearchQuery.toLowerCase().trim();
+    return voices.filter(
+      (v) => (v.name || '').toLowerCase().includes(q) || (v.lang || '').toLowerCase().includes(q)
+    );
+  }, [voices, voiceSearchQuery]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -30,7 +48,7 @@ export function SettingsModal({
         <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Palette className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-white text-lg">Cài đặt Máy đọc sách & Giọng đọc</h3>
+            <h3 className="font-bold text-white text-lg">Cài đặt Giọng đọc & Trình xem sách</h3>
           </div>
           <button
             onClick={onClose}
@@ -51,8 +69,8 @@ export function SettingsModal({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {[
                 { id: 'dark', name: 'Tối (AMOLED)', bg: '#121212', text: '#ffffff', border: '#333' },
-                { id: 'sepia', name: 'Giấy vàng (Sepia)', bg: '#fbf0d9', text: '#3d2f1d', border: '#e4d0a7' },
-                { id: 'paper', name: 'Trắng giấy (Paper)', bg: '#fafafa', text: '#18181b', border: '#ccc' },
+                { id: 'sepia', name: 'Giấy vàng', bg: '#fbf0d9', text: '#3d2f1d', border: '#e4d0a7' },
+                { id: 'paper', name: 'Trắng giấy', bg: '#fafafa', text: '#18181b', border: '#ccc' },
                 { id: 'slate', name: 'Xanh Slate', bg: '#0f172a', text: '#e2e8f0', border: '#334155' }
               ].map((t) => (
                 <button
@@ -65,6 +83,155 @@ export function SettingsModal({
                 >
                   <span>{t.name}</span>
                   {theme === t.id && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Voice Selector with Real-time Search Box */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Mic className="w-4 h-4 text-emerald-400" />
+                <span>Giọng đọc hệ thống (Lưu tự động vào DB)</span>
+              </label>
+              <span className="text-xs font-mono text-emerald-400">
+                {viVoicesCount > 0 ? `[ Có ${viVoicesCount} giọng TV ]` : '[ Thiếu giọng TV ]'}
+              </span>
+            </div>
+
+            {/* Voice Search Box */}
+            <div className="relative mb-2.5">
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Tìm kiếm giọng đọc (VD: vi, HoaiMy, Google, English)..."
+                value={voiceSearchQuery}
+                onChange={(e) => setVoiceSearchQuery(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 pl-8 pr-8 text-xs text-neutral-200 focus:border-emerald-500 focus:outline-none placeholder:text-neutral-500"
+              />
+              {voiceSearchQuery && (
+                <button
+                  onClick={() => setVoiceSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white p-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {voices.length === 0 ? (
+              <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-lg border border-amber-900">
+                Đang nạp danh sách giọng đọc từ hệ thống...
+              </p>
+            ) : filteredVoices.length === 0 ? (
+              <p className="text-xs text-neutral-400 bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-center">
+                Không tìm thấy giọng đọc nào khớp với "{voiceSearchQuery}"
+              </p>
+            ) : (
+              <select
+                value={selectedVoiceURI}
+                onChange={(e) => onChangeVoice(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-200 focus:border-emerald-500 focus:outline-none cursor-pointer font-medium"
+              >
+                {filteredVoices.map((v) => {
+                  const isVi = isVietnameseVoice(v);
+                  return (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {isVi ? '🇻🇳 [Tiếng Việt] ' : ''}{v.name} ({v.lang})
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+
+          {/* Sentence Pause Config */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-emerald-400" />
+                <span>Thời gian ngắt nghỉ giữa các câu</span>
+              </label>
+              <span className="text-xs font-mono text-emerald-400 font-bold">
+                {sentencePause === 0 ? 'Không nghỉ (0s)' : `${sentencePause / 1000}s`}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {[
+                { label: '0s', val: 0 },
+                { label: '0.3s', val: 300 },
+                { label: '0.5s', val: 500 },
+                { label: '1.0s', val: 1000 },
+                { label: '1.5s', val: 1500 }
+              ].map((p) => (
+                <button
+                  key={p.val}
+                  onClick={() => onChangeSentencePause(p.val)}
+                  className={`py-2 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                    sentencePause === p.val
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:bg-neutral-800'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Line Height Config */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <AlignJustify className="w-4 h-4 text-emerald-400" />
+                <span>Khoảng cách dòng (Line Height)</span>
+              </label>
+              <span className="text-xs font-mono text-emerald-400 font-bold">{lineHeight}x</span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {[1.6, 1.8, 2.0, 2.2, 2.5].map((lh) => (
+                <button
+                  key={lh}
+                  onClick={() => onChangeLineHeight(lh)}
+                  className={`py-2 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                    lineHeight === lh
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:bg-neutral-800'
+                  }`}
+                >
+                  {lh}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Letter Spacing Config */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <MoveHorizontal className="w-4 h-4 text-emerald-400" />
+                <span>Khoảng cách chữ (Letter Spacing)</span>
+              </label>
+              <span className="text-xs font-mono text-emerald-400 font-bold">{letterSpacing}px</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: 'Chuẩn (0px)', val: 0 },
+                { label: 'Thưa (+0.5px)', val: 0.5 },
+                { label: 'Thưa (+1px)', val: 1 },
+                { label: 'Rộng (+2px)', val: 2 }
+              ].map((ls) => (
+                <button
+                  key={ls.val}
+                  onClick={() => onChangeLetterSpacing(ls.val)}
+                  className={`py-2 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                    letterSpacing === ls.val
+                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:bg-neutral-800'
+                  }`}
+                >
+                  {ls.label}
                 </button>
               ))}
             </div>
@@ -130,40 +297,6 @@ export function SettingsModal({
                 + Cao
               </button>
             </div>
-          </div>
-
-          {/* Voice Selector */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Mic className="w-4 h-4 text-emerald-400" />
-                <span>Giọng đọc hệ thống (Text-To-Speech Voice)</span>
-              </label>
-              <span className="text-xs font-mono text-emerald-400">
-                {viVoicesCount > 0 ? `[ Có ${viVoicesCount} giọng TV ]` : '[ Thiếu giọng TV ]'}
-              </span>
-            </div>
-
-            {voices.length === 0 ? (
-              <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-lg border border-amber-900">
-                Đang nạp danh sách giọng đọc từ hệ thống...
-              </p>
-            ) : (
-              <select
-                value={selectedVoiceURI}
-                onChange={(e) => onChangeVoice(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-200 focus:border-emerald-500 focus:outline-none cursor-pointer font-medium"
-              >
-                {voices.map((v) => {
-                  const isVi = isVietnameseVoice(v);
-                  return (
-                    <option key={v.voiceURI} value={v.voiceURI}>
-                      {isVi ? '🇻🇳 [Tiếng Việt] ' : ''}{v.name} ({v.lang})
-                    </option>
-                  );
-                })}
-              </select>
-            )}
           </div>
 
           {/* Reading Speed Slider */}

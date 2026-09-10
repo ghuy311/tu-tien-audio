@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/**
- * Kiểm tra xem voice có phải là giọng đọc tiếng Việt hay không
- */
 export function isVietnameseVoice(voice) {
   if (!voice) return false;
   const lang = (voice.lang || '').toLowerCase();
@@ -18,15 +15,16 @@ export function isVietnameseVoice(voice) {
   );
 }
 
-export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
+export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSentencePause = 300, initialVoiceURI = '') {
   const [voices, setVoices] = useState([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState('');
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState(initialVoiceURI);
   const [hasVietnameseVoice, setHasVietnameseVoice] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [rate, setRate] = useState(1.0);
   const [pitch, setPitch] = useState(1.0);
+  const [sentencePause, setSentencePause] = useState(initialSentencePause);
 
   const currentSentenceRef = useRef(currentSentenceIndex);
   const isPlayingRef = useRef(isPlaying);
@@ -34,6 +32,8 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
   const pitchRef = useRef(pitch);
   const selectedVoiceURIRef = useRef(selectedVoiceURI);
   const sentencesRef = useRef(sentences);
+  const sentencePauseRef = useRef(sentencePause);
+  const pauseTimerRef = useRef(null);
 
   currentSentenceRef.current = currentSentenceIndex;
   isPlayingRef.current = isPlaying;
@@ -41,8 +41,23 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
   pitchRef.current = pitch;
   selectedVoiceURIRef.current = selectedVoiceURI;
   sentencesRef.current = sentences;
+  sentencePauseRef.current = sentencePause;
 
-  // 1. Tải danh sách các giọng đọc (Voices) từ trình duyệt
+  const clearPauseTimer = () => {
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = null;
+    }
+  };
+
+  // Đồng bộ initialSentencePause (bao gồm 0ms)
+  useEffect(() => {
+    if (initialSentencePause !== undefined) {
+      setSentencePause(initialSentencePause);
+      sentencePauseRef.current = initialSentencePause;
+    }
+  }, [initialSentencePause]);
+
   useEffect(() => {
     const updateVoices = () => {
       if (!('speechSynthesis' in window)) return;
@@ -52,12 +67,22 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
       const viVoice = availableVoices.find(isVietnameseVoice);
       setHasVietnameseVoice(!!viVoice);
 
-      if (availableVoices.length > 0 && (!selectedVoiceURIRef.current || !availableVoices.some(v => v.voiceURI === selectedVoiceURIRef.current))) {
-        if (viVoice) {
-          setSelectedVoiceURI(viVoice.voiceURI);
-        } else {
-          const defaultVoice = availableVoices.find(v => v.default) || availableVoices[0];
-          if (defaultVoice) setSelectedVoiceURI(defaultVoice.voiceURI);
+      if (availableVoices.length > 0) {
+        const savedVoice = initialVoiceURI && availableVoices.find(v => v.voiceURI === initialVoiceURI);
+        if (savedVoice) {
+          setSelectedVoiceURI(savedVoice.voiceURI);
+          selectedVoiceURIRef.current = savedVoice.voiceURI;
+        } else if (!selectedVoiceURIRef.current || !availableVoices.some(v => v.voiceURI === selectedVoiceURIRef.current)) {
+          if (viVoice) {
+            setSelectedVoiceURI(viVoice.voiceURI);
+            selectedVoiceURIRef.current = viVoice.voiceURI;
+          } else {
+            const defaultVoice = availableVoices.find(v => v.default) || availableVoices[0];
+            if (defaultVoice) {
+              setSelectedVoiceURI(defaultVoice.voiceURI);
+              selectedVoiceURIRef.current = defaultVoice.voiceURI;
+            }
+          }
         }
       }
     };
@@ -65,16 +90,22 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
     updateVoices();
     if ('speechSynthesis' in window) {
       window.speechSynthesis.onvoiceschanged = updateVoices;
-      // Một số trình duyệt Chrome/Windows cần gọi nhiều lần để nạp voice
-      setTimeout(updateVoices, 500);
-      setTimeout(updateVoices, 1500);
+      setTimeout(updateVoices, 300);
+      setTimeout(updateVoices, 1000);
     }
-  }, []);
+  }, [initialVoiceURI]);
 
-  // 2. Phát câu theo chỉ số (index)
+  useEffect(() => {
+    if (initialVoiceURI && voices.some(v => v.voiceURI === initialVoiceURI)) {
+      setSelectedVoiceURI(initialVoiceURI);
+      selectedVoiceURIRef.current = initialVoiceURI;
+    }
+  }, [initialVoiceURI, voices]);
+
   const speakSentence = useCallback((index) => {
     if (!('speechSynthesis' in window)) return;
 
+    clearPauseTimer();
     window.speechSynthesis.cancel();
 
     const targetSentences = sentencesRef.current;
@@ -110,7 +141,16 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
       if (isPlayingRef.current) {
         const nextIdx = index + 1;
         if (nextIdx < targetSentences.length) {
-          speakSentence(nextIdx);
+          const pauseDelay = sentencePauseRef.current || 0;
+          if (pauseDelay > 0) {
+            pauseTimerRef.current = setTimeout(() => {
+              if (isPlayingRef.current) {
+                speakSentence(nextIdx);
+              }
+            }, pauseDelay);
+          } else {
+            speakSentence(nextIdx);
+          }
         } else {
           setIsPlaying(false);
           setIsPaused(false);
@@ -139,6 +179,7 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
   }, [speakSentence]);
 
   const pause = useCallback(() => {
+    clearPauseTimer();
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.pause();
     setIsPlaying(false);
@@ -146,6 +187,7 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
   }, []);
 
   const stop = useCallback(() => {
+    clearPauseTimer();
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     setIsPlaying(false);
@@ -196,8 +238,14 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
     }
   }, [speakSentence]);
 
+  const changeSentencePause = useCallback((pauseMs) => {
+    setSentencePause(pauseMs);
+    sentencePauseRef.current = pauseMs;
+  }, []);
+
   useEffect(() => {
     return () => {
+      clearPauseTimer();
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -214,6 +262,7 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
     setCurrentSentenceIndex,
     rate,
     pitch,
+    sentencePause,
     play,
     pause,
     stop,
@@ -224,6 +273,7 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd) {
     forward15s,
     changeRate,
     changePitch,
-    changeVoice
+    changeVoice,
+    changeSentencePause
   };
 }

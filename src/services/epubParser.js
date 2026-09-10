@@ -1,16 +1,34 @@
 import { ZipReader, BlobReader, TextWriter, BlobWriter } from '@zip.js/zip.js';
 
-// Session Cache giữ danh sách Zip Entries của cuốn sách đang mở trong bộ nhớ
-// Giúp tránh việc phải đọc lại toàn bộ cấu trúc file Zip (5000+ file) mỗi lần chuyển chương
+export function isJunkTitle(title) {
+  if (!title || typeof title !== 'string') return true;
+  const t = title.trim().toLowerCase();
+  if (
+    t === '' ||
+    t === 'unknown' ||
+    t === 'unknow' ||
+    t === 'untitled' ||
+    t === 'no title' ||
+    t === 'chương không xác định' ||
+    t === 'chương không tìm thấy' ||
+    t === 'sách không tiêu đề' ||
+    t === 'tác giả chưa rõ' ||
+    t === 'toc' ||
+    t === 'table of contents'
+  ) {
+    return true;
+  }
+  if (/\.(xhtml|html|htm|xml|php|txt)$/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 let activeZipSession = {
   blob: null,
   entriesMap: null
 };
 
-/**
- * Nạp danh sách file trong Zip 1 LẦN DUY NHẤT cho cuốn sách đang mở.
- * Các lần chuyển chương tiếp theo sẽ dùng lại entriesMap này (tốn 0ms).
- */
 export async function getZipEntriesMap(epubBlob) {
   if (activeZipSession.blob === epubBlob && activeZipSession.entriesMap) {
     return activeZipSession.entriesMap;
@@ -31,9 +49,6 @@ export async function getZipEntriesMap(epubBlob) {
   return entriesMap;
 }
 
-/**
- * Tách đoạn văn bản thành danh sách câu hoàn chỉnh để đọc qua TTS
- */
 export function chunkTextIntoSentences(text) {
   if (!text) return [];
 
@@ -75,7 +90,7 @@ export function chunkTextIntoSentences(text) {
 }
 
 /**
- * Bóc tách siêu tốc Metadata & Danh mục chương (TOC)
+ * Đọc toàn bộ Tên chương thật từ NCX/NAV trong 15ms khi nhập file.
  */
 export async function parseEpubMetadata(epubBlob) {
   const entryMap = await getZipEntriesMap(epubBlob);
@@ -105,21 +120,86 @@ export async function parseEpubMetadata(epubBlob) {
   const opfDoc = domParser.parseFromString(opfText, 'text/xml');
 
   const titleEl = opfDoc.querySelector('title') || opfDoc.querySelector('dc\\:title');
-  const title = titleEl ? titleEl.textContent.trim() : 'Sách không tiêu đề';
+  const rawBookTitle = titleEl ? titleEl.textContent.trim() : '';
+  const title = !isJunkTitle(rawBookTitle) ? rawBookTitle : 'Sách không tiêu đề';
 
   const creatorEl = opfDoc.querySelector('creator') || opfDoc.querySelector('dc\\:creator');
   const author = creatorEl ? creatorEl.textContent.trim() : 'Tác giả chưa rõ';
 
   const manifestItems = new Map();
+  let ncxItem = null;
+  let navItem = null;
+
   const itemEls = opfDoc.querySelectorAll('manifest > item');
   itemEls.forEach(item => {
-    manifestItems.set(item.getAttribute('id'), {
-      href: item.getAttribute('href'),
-      mediaType: item.getAttribute('media-type'),
-      properties: item.getAttribute('properties') || ''
-    });
+    const id = item.getAttribute('id');
+    const href = item.getAttribute('href');
+    const mediaType = item.getAttribute('media-type');
+    const properties = item.getAttribute('properties') || '';
+
+    manifestItems.set(id, { href, mediaType, properties });
+
+    if (mediaType === 'application/x-dtbncx+xml' || id === 'ncx' || href.endsWith('.ncx')) {
+      ncxItem = { href, mediaType };
+    }
+    if (properties.includes('nav') || href.includes('nav.')) {
+      navItem = { href, mediaType };
+    }
   });
 
+  const realChapterTitlesMap = new Map();
+
+  if (ncxItem) {
+    try {
+      const ncxPath = normalizePath(opfDir + ncxItem.href);
+      const ncxEntry = entryMap.get(ncxPath);
+      if (ncxEntry) {
+        const ncxText = await ncxEntry.getData(new TextWriter());
+        const ncxDoc = domParser.parseFromString(ncxText, 'text/xml');
+        const navPoints = ncxDoc.querySelectorAll('navPoint');
+        navPoints.forEach(np => {
+          const textEl = np.querySelector('navLabel > text');
+          const contentEl = np.querySelector('content');
+          if (textEl && contentEl) {
+            const rawTitle = textEl.textContent.trim();
+            const src = contentEl.getAttribute('src');
+            if (rawTitle && src && !isJunkTitle(rawTitle)) {
+              const cleanSrc = src.split('#')[0];
+              realChapterTitlesMap.set(cleanSrc, rawTitle);
+              realChapterTitlesMap.set(normalizePath(cleanSrc), rawTitle);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Không thể parse NCX TOC:', e);
+    }
+  }
+
+  if (realChapterTitlesMap.size === 0 && navItem) {
+    try {
+      const navPath = normalizePath(opfDir + navItem.href);
+      const navEntry = entryMap.get(navPath);
+      if (navEntry) {
+        const navText = await navEntry.getData(new TextWriter());
+        const navDoc = domParser.parseFromString(navText, 'text/html');
+        const aElements = navDoc.querySelectorAll('nav a, a[href]');
+        aElements.forEach(a => {
+          const href = a.getAttribute('href');
+          const text = a.textContent.trim();
+          if (href && text && !isJunkTitle(text)) {
+            const cleanSrc = href.split('#')[0];
+            realChapterTitlesMap.set(cleanSrc, text);
+            realChapterTitlesMap.set(normalizePath(cleanSrc), text);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Không thể parse NAV TOC:', e);
+    }
+  }
+
+  // Cover Image
   let coverUrl = null;
   let coverItem = null;
 
@@ -156,7 +236,15 @@ export async function parseEpubMetadata(epubBlob) {
     if (!manifestItem) continue;
 
     const chapterHref = manifestItem.href;
-    const chapterTitle = `Chương ${index + 1}`;
+
+    const rawTitle =
+      realChapterTitlesMap.get(chapterHref) ||
+      realChapterTitlesMap.get(normalizePath(chapterHref));
+
+    let chapterTitle = (!isJunkTitle(rawTitle))
+      ? rawTitle.trim()
+      : `Chương ${index + 1}`;
+
     toc.push({
       index,
       href: chapterHref,
@@ -175,14 +263,20 @@ export async function parseEpubMetadata(epubBlob) {
 }
 
 /**
- * [SIÊU TỐC 2MS] Bóc tách duy nhất 1 chương bằng cách dùng lại Zip Entries Map đã cached.
+ * Bóc tách siêu tốc văn bản 1 chương (Lazy load 2ms)
+ * CHUẨN HÓA:
+ * 1. Tên chương được đặt làm CÂU 0 (sentences[0]) để TTS ĐỌC XƯỚNG TÊN CHƯƠNG ĐẦU TIÊN KHI MỞ/CHUYỂN CHƯƠNG.
+ * 2. Nội dung thân bài phía dưới sẽ bắt đầu từ câu 1 (sentences[1]) để trình bày đẹp mắt không lặp lại tiêu đề.
  */
-export async function extractSingleChapter(epubBlob, opfDir = '', chapterHref, defaultTitle = '') {
+export async function extractSingleChapter(epubBlob, opfDir = '', chapterHref, defaultTitle = '', chapterIndex = null) {
+  const fallbackTitle = (typeof chapterIndex === 'number' && chapterIndex >= 0)
+    ? `Chương ${chapterIndex + 1}`
+    : 'Chương không xác định';
+
   if (!epubBlob || !chapterHref) {
-    return { title: defaultTitle || 'Chương không xác định', sentences: [], rawText: '' };
+    return { title: fallbackTitle, sentences: [], rawText: '' };
   }
 
-  // Dùng lại entriesMap đã nạp sẵn trong RAM (Tốn 0ms)
   const entryMap = await getZipEntriesMap(epubBlob);
 
   const fullPath = normalizePath(opfDir + chapterHref);
@@ -198,33 +292,91 @@ export async function extractSingleChapter(epubBlob, opfDir = '', chapterHref, d
   }
 
   if (!chapterEntry) {
-    return { title: defaultTitle || 'Chương không tìm thấy', sentences: ['Nội dung chương không tồn tại trong file EPUB.'], rawText: '' };
+    return { title: fallbackTitle, sentences: ['Nội dung chương không tồn tại trong file EPUB.'], rawText: '' };
   }
 
-  // Đọc nội dung HTML chương (chỉ tốn khoảng 2-5ms)
   const htmlContent = await chapterEntry.getData(new TextWriter());
   const domParser = new DOMParser();
   const chapterDoc = domParser.parseFromString(htmlContent, 'text/html');
 
-  const selectorsToRemove = ['script', 'style', 'head', 'nav', 'svg', 'iframe'];
+  // 1. Ưu tiên defaultTitle nếu không phải rác
+  let chapterTitle = !isJunkTitle(defaultTitle) ? defaultTitle.trim() : '';
+
+  // 2. Tìm heading trong <body> (chỉ h1, h2, h3 - TUYỆT ĐỐI KHÔNG DÙNG <title> TRONG <head>)
+  const headingEl = chapterDoc.body ? chapterDoc.body.querySelector('h1, h2, h3') : null;
+  const headingText = headingEl ? headingEl.textContent.trim() : '';
+
+  if (!isJunkTitle(headingText)) {
+    // Nếu chưa có chapterTitle hoặc chapterTitle có dạng mặc định "Chương X", nhưng trong body có tiêu đề h1/h2/h3 cụ thể hơn
+    if (!chapterTitle || /^Chương\s+\d+$/i.test(chapterTitle)) {
+      chapterTitle = headingText;
+    }
+  }
+
+  // 3. Nếu vẫn là rác hoặc rỗng, dùng fallbackTitle theo chỉ số chương
+  if (!chapterTitle || isJunkTitle(chapterTitle)) {
+    chapterTitle = fallbackTitle;
+  }
+
+  // Trích xuất danh sách hình ảnh (Cover, Minh họa, Bản đồ...) trong chương trước khi xóa thẻ
+  const imageElements = chapterDoc.querySelectorAll('img, image');
+  const images = [];
+  const chapterDir = fullPath.includes('/') ? fullPath.substring(0, fullPath.lastIndexOf('/') + 1) : '';
+
+  for (const imgEl of imageElements) {
+    const rawSrc = imgEl.getAttribute('src') || imgEl.getAttribute('href') || imgEl.getAttribute('xlink:href');
+    if (!rawSrc) continue;
+
+    const cleanSrc = rawSrc.split('#')[0];
+    const fullImgPath = normalizePath(chapterDir ? chapterDir + cleanSrc : cleanSrc);
+
+    let imgEntry = entryMap.get(fullImgPath);
+    if (!imgEntry) {
+      const imgFileName = cleanSrc.substring(cleanSrc.lastIndexOf('/') + 1);
+      for (const [filename, entry] of entryMap.entries()) {
+        if (filename.endsWith(imgFileName)) {
+          imgEntry = entry;
+          break;
+        }
+      }
+    }
+
+    if (imgEntry) {
+      try {
+        const ext = fullImgPath.split('.').pop().toLowerCase();
+        const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : ext === 'svg' ? 'image/svg+xml' : 'image/jpeg';
+        const blob = await imgEntry.getData(new BlobWriter(mimeType));
+        const imgUrl = URL.createObjectURL(blob);
+        images.push(imgUrl);
+      } catch (e) {
+        console.warn('Lỗi bóc tách ảnh chương:', e);
+      }
+    }
+  }
+
+  // Loại bỏ các thẻ tiêu đề (H1, H2, H3, Title) và thẻ phụ khỏi DOM body để không lặp văn bản khi đọc
+  const selectorsToRemove = ['script', 'style', 'head', 'nav', 'svg', 'iframe', 'h1', 'h2', 'h3', 'title'];
   selectorsToRemove.forEach(sel => {
     chapterDoc.querySelectorAll(sel).forEach(el => el.remove());
   });
 
-  let chapterTitle = defaultTitle;
-  const headingEl = chapterDoc.querySelector('h1, h2, h3, title');
-  if (headingEl && headingEl.textContent.trim()) {
-    chapterTitle = headingEl.textContent.trim();
+  let bodyText = chapterDoc.body ? chapterDoc.body.textContent : chapterDoc.textContent;
+  let cleanText = bodyText.replace(/\s+/g, ' ').trim();
+
+  if (chapterTitle && cleanText.startsWith(chapterTitle)) {
+    cleanText = cleanText.substring(chapterTitle.length).trim();
   }
 
-  const bodyText = chapterDoc.body ? chapterDoc.body.textContent : chapterDoc.textContent;
-  const cleanText = bodyText.replace(/\s+/g, ' ').trim();
-  const sentences = chunkTextIntoSentences(cleanText);
+  const bodySentences = chunkTextIntoSentences(cleanText);
+
+  // ĐẶT TÊN CHƯƠNG LÀM CÂU ĐẦU TIÊN (SENTENCE 0) ĐỂ TTS ĐỌC XƯỚNG TÊN CHƯƠNG
+  const sentences = [chapterTitle, ...bodySentences];
 
   return {
     title: chapterTitle,
     sentences,
-    rawText: cleanText
+    rawText: cleanText,
+    images
   };
 }
 

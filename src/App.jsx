@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useBooks } from './hooks/useBooks';
 import { useChapter } from './hooks/useChapter';
 import { useTTS } from './hooks/useTTS';
 import { useMediaSession } from './hooks/useMediaSession';
 import { useWakeLock } from './hooks/useWakeLock';
 import { getSettings, saveSettings, getReadingProgress, saveReadingProgress } from './db/database';
+import { isJunkTitle } from './services/epubParser';
 
 import { LibraryView } from './components/LibraryView';
 import { ReaderView } from './components/ReaderView';
@@ -29,7 +30,10 @@ export default function App() {
     pitch: 1.0,
     fontSize: 19,
     fontFamily: 'lora',
-    theme: 'dark'
+    theme: 'dark',
+    sentencePause: 300,
+    lineHeight: 2.0,
+    letterSpacing: 0
   });
 
   const [isTocOpen, setIsTocOpen] = useState(false);
@@ -81,18 +85,13 @@ export default function App() {
     return chapterContent?.sentences || [];
   }, [chapterContent]);
 
-  const totalChapters = currentBook?.toc?.length || currentBook?.chapters?.length || 0;
+  const activeChapterTitle = useMemo(() => {
+    const title = chapterContent?.title || currentBook?.toc?.[currentChapterIndex]?.title;
+    if (!isJunkTitle(title)) return title;
+    return `Chương ${currentChapterIndex + 1}`;
+  }, [chapterContent, currentBook, currentChapterIndex]);
 
-  const handleChapterEnd = useCallback(() => {
-    if (!currentBook) return;
-    const maxChaps = currentBook.toc?.length || currentBook.chapters?.length || 0;
-    if (currentChapterIndex < maxChaps - 1) {
-      const nextChapIdx = currentChapterIndex + 1;
-      setCurrentChapterIndex(nextChapIdx);
-      setCurrentSentenceIndex(0);
-      saveReadingProgress(selectedBookId, nextChapIdx, 0);
-    }
-  }, [currentBook, currentChapterIndex, selectedBookId]);
+  const totalChapters = currentBook?.toc?.length || currentBook?.chapters?.length || 0;
 
   const handleSentenceChange = useCallback((newSentenceIdx) => {
     setCurrentSentenceIndex(newSentenceIdx);
@@ -101,17 +100,47 @@ export default function App() {
     }
   }, [selectedBookId, currentChapterIndex]);
 
+  const activePauseDelay = settings.sentencePause ?? 300;
+
+  // Ref lưu trạng thái đang phát audio để tự động next phát tiếp chương sau
+  const isPlayingRef = useRef(false);
+
+  const handleChapterEnd = useCallback(() => {
+    if (!currentBook) return;
+    const maxChaps = currentBook.toc?.length || currentBook.chapters?.length || 0;
+    if (currentChapterIndex < maxChaps - 1) {
+      const nextChapIdx = currentChapterIndex + 1;
+      const shouldAutoplay = isPlayingRef.current;
+      setCurrentChapterIndex(nextChapIdx);
+      setCurrentSentenceIndex(0);
+      saveReadingProgress(selectedBookId, nextChapIdx, 0);
+
+      // Nếu đang phát audio -> Tự động nạp và phát tiếp câu 0 của chương mới
+      if (shouldAutoplay) {
+        setTimeout(() => {
+          ttsRef.current?.play(0);
+        }, 200);
+      }
+    }
+  }, [currentBook, currentChapterIndex, selectedBookId]);
+
   const tts = useTTS(
     currentChapterSentences,
     handleSentenceChange,
-    handleChapterEnd
+    handleChapterEnd,
+    activePauseDelay,
+    settings.voiceURI || ''
   );
+
+  isPlayingRef.current = tts.isPlaying;
+  const ttsRef = useRef(tts);
+  ttsRef.current = tts;
 
   useWakeLock(tts.isPlaying);
 
   useMediaSession({
     bookTitle: currentBook?.title,
-    chapterTitle: chapterContent?.title || currentBook?.toc?.[currentChapterIndex]?.title,
+    chapterTitle: activeChapterTitle,
     coverUrl: currentBook?.coverUrl,
     isPlaying: tts.isPlaying,
     onPlay: () => tts.play(currentSentenceIndex),
@@ -131,10 +160,17 @@ export default function App() {
   };
 
   const handleSelectChapter = (chapIdx) => {
+    const wasPlaying = tts.isPlaying;
     tts.stop();
     setCurrentChapterIndex(chapIdx);
     setCurrentSentenceIndex(0);
     saveReadingProgress(selectedBookId, chapIdx, 0);
+
+    if (wasPlaying) {
+      setTimeout(() => {
+        ttsRef.current?.play(0);
+      }, 200);
+    }
   };
 
   const handlePrevChapter = () => {
@@ -178,6 +214,8 @@ export default function App() {
             hasVietnameseVoice={tts.hasVietnameseVoice}
             fontSize={settings.fontSize}
             fontFamily={settings.fontFamily}
+            lineHeight={settings.lineHeight ?? 2.0}
+            letterSpacing={settings.letterSpacing ?? 0}
             theme={settings.theme || 'dark'}
             onChangeTheme={(newTheme) => updateSettings({ theme: newTheme })}
             onSentenceClick={handleSentenceClick}
@@ -193,7 +231,7 @@ export default function App() {
             isPaused={tts.isPaused}
             currentSentenceIndex={currentSentenceIndex}
             totalSentences={currentChapterSentences.length}
-            currentChapterTitle={chapterContent?.title || currentBook?.toc?.[currentChapterIndex]?.title || ''}
+            currentChapterTitle={activeChapterTitle}
             rate={tts.rate}
             onPlay={() => tts.play(currentSentenceIndex)}
             onPause={tts.pause}
@@ -230,10 +268,16 @@ export default function App() {
         selectedVoiceURI={tts.selectedVoiceURI}
         rate={tts.rate}
         pitch={tts.pitch}
+        sentencePause={settings.sentencePause ?? 300}
         fontSize={settings.fontSize}
         fontFamily={settings.fontFamily}
+        lineHeight={settings.lineHeight ?? 2.0}
+        letterSpacing={settings.letterSpacing ?? 0}
         theme={settings.theme || 'dark'}
-        onChangeVoice={tts.changeVoice}
+        onChangeVoice={(voiceURI) => {
+          tts.changeVoice(voiceURI);
+          updateSettings({ voiceURI });
+        }}
         onChangeRate={(val) => {
           tts.changeRate(val);
           updateSettings({ rate: val });
@@ -242,8 +286,14 @@ export default function App() {
           tts.changePitch(val);
           updateSettings({ pitch: val });
         }}
+        onChangeSentencePause={(val) => {
+          tts.changeSentencePause(val);
+          updateSettings({ sentencePause: val });
+        }}
         onChangeFontSize={(val) => updateSettings({ fontSize: val })}
         onChangeFontFamily={(val) => updateSettings({ fontFamily: val })}
+        onChangeLineHeight={(val) => updateSettings({ lineHeight: val })}
+        onChangeLetterSpacing={(val) => updateSettings({ letterSpacing: val })}
         onChangeTheme={(val) => updateSettings({ theme: val })}
       />
 

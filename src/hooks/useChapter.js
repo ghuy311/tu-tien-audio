@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { extractSingleChapter } from '../services/epubParser';
+import { extractSingleChapter, isJunkTitle } from '../services/epubParser';
 
 export function useChapter(book, currentChapterIndex) {
   const [chapterContent, setChapterContent] = useState(null);
@@ -19,11 +19,14 @@ export function useChapter(book, currentChapterIndex) {
     }
 
     const tocItem = bookObj.toc[index];
+    const rawTitle = tocItem.title;
+    const defaultTitle = !isJunkTitle(rawTitle) ? rawTitle : `Chương ${index + 1}`;
     const extracted = await extractSingleChapter(
       bookObj.epubBlob,
       bookObj.opfDir || '',
       tocItem.href,
-      tocItem.title || `Chương ${index + 1}`
+      defaultTitle,
+      index
     );
 
     cacheRef.current.set(cacheKey, extracted);
