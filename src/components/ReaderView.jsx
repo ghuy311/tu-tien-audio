@@ -25,6 +25,10 @@ export function ReaderView({
   onOpenSettings
 }) {
   const sentenceRefs = useRef([]);
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const scrollTop = useRef(0);
+  const dragDistance = useRef(0);
   const totalChapters = book?.toc?.length || 0;
 
   const chapterTitle = useMemo(() => {
@@ -49,6 +53,50 @@ export function ReaderView({
       }
     }
   }, [currentSentenceIndex, currentChapterIndex, chapterContent]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const headerOffset = 80; // Khoảng cách thanh menu trên
+        const bottomBarHeight = 160; // Khoảng cách thanh audio dưới
+        const viewportHeight = window.innerHeight;
+        const visibleHeight = viewportHeight - headerOffset - bottomBarHeight;
+
+        if (e.shiftKey) {
+           window.scrollBy({ top: -visibleHeight, behavior: 'smooth' });
+        } else {
+          let targetSentence = null;
+          for (let i = 0; i < sentenceRefs.current.length; i++) {
+            const el = sentenceRefs.current[i];
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              // Tìm câu đang bị che lấp bởi thanh audio ở dưới (vượt quá bottom)
+              if (rect.bottom > viewportHeight - bottomBarHeight + 10 && rect.top > headerOffset) {
+                targetSentence = el;
+                break;
+              }
+            }
+          }
+          if (targetSentence) {
+            const rect = targetSentence.getBoundingClientRect();
+            // Cuộn câu đó lên sát dưới thanh header
+            window.scrollBy({ top: rect.top - headerOffset - 10, behavior: 'smooth' });
+          } else {
+            // Cuộn mặc định nếu không tìm thấy
+            window.scrollBy({ top: visibleHeight, behavior: 'smooth' });
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleSentenceClick = (idx) => {
+    if (dragDistance.current > 20) return;
+    onSentenceClick(idx);
+  };
 
   if (!book) {
     return (
@@ -141,7 +189,25 @@ export function ReaderView({
       </header>
 
       {/* Reader Page Area */}
-      <main className="max-w-2xl mx-auto px-5 sm:px-8 py-10">
+      <main 
+        className="max-w-2xl mx-auto px-5 sm:px-8 py-10 cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={(e) => {
+          isDragging.current = true;
+          dragDistance.current = 0;
+          startY.current = e.pageY - e.currentTarget.offsetTop;
+          scrollTop.current = window.scrollY;
+        }}
+        onMouseLeave={() => { isDragging.current = false; }}
+        onMouseUp={() => { isDragging.current = false; }}
+        onMouseMove={(e) => {
+          if (!isDragging.current) return;
+          e.preventDefault();
+          const y = e.pageY - e.currentTarget.offsetTop;
+          const walk = (y - startY.current) * 1.5;
+          dragDistance.current += Math.abs(y - startY.current);
+          window.scrollTo(0, scrollTop.current - walk);
+        }}
+      >
         {!hasVietnameseVoice && (
           <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-200 text-xs flex items-start gap-3">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -161,7 +227,7 @@ export function ReaderView({
           </span>
           <h1
             ref={(el) => (sentenceRefs.current[0] = el)}
-            onClick={() => onSentenceClick(0)}
+            onClick={() => handleSentenceClick(0)}
             className={`${fontFamilyClass} text-2xl sm:text-3xl font-bold tracking-tight leading-snug cursor-pointer transition-all duration-200 inline-block p-2 rounded-xl ${
               isTitleActive
                 ? 'reader-sentence-active shadow-sm'
@@ -211,7 +277,7 @@ export function ReaderView({
                       <span
                         key={sIdx}
                         ref={(el) => (sentenceRefs.current[sIdx] = el)}
-                        onClick={() => onSentenceClick(sIdx)}
+                        onClick={() => handleSentenceClick(sIdx)}
                         className={`inline cursor-pointer rounded py-0.5 px-1 transition-all duration-150 ${
                           isActive
                             ? 'reader-sentence-active shadow-xs'
@@ -233,7 +299,7 @@ export function ReaderView({
                   <span
                     key={sentenceActualIdx}
                     ref={(el) => (sentenceRefs.current[sentenceActualIdx] = el)}
-                    onClick={() => onSentenceClick(sentenceActualIdx)}
+                    onClick={() => handleSentenceClick(sentenceActualIdx)}
                     className={`inline cursor-pointer rounded py-0.5 px-1 transition-all duration-150 ${
                       isActive
                         ? 'reader-sentence-active shadow-xs'
