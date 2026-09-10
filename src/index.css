@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-lora {
+    font-family: 'Lora', Georgia, serif;
+  }
+  .font-merriweather {
+    font-family: 'Merriweather', Georgia, serif;
+  }
+  .font-inter {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  .font-mono-reader {
+    font-family: 'Roboto Mono', monospace;
+  }
+}
+
+/* Các Theme chuẩn Máy đọc sách (E-Reader Themes) */
+.theme-dark {
+  background-color: #121212;
+  color: #e4e4e7;
+}
+.theme-dark .reader-card {
+  background-color: #1a1a1a;
+  border-color: #27272a;
+}
+.theme-dark .reader-sentence-active {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #ffffff;
+  border-left: 4px solid #10b981;
+  padding-left: 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+}
+
+.theme-sepia {
+  background-color: #fbf0d9;
+  color: #3d2f1d;
+}
+.theme-sepia .reader-card {
+  background-color: #f4e3c3;
+  border-color: #e4d0a7;
+}
+.theme-sepia .reader-sentence-active {
+  background-color: #fce4a6;
+  color: #24190e;
+  border-left: 4px solid #d97706;
+  padding-left: 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+}
+
+.theme-paper {
+  background-color: #fafafa;
+  color: #18181b;
+}
+.theme-paper .reader-card {
+  background-color: #f4f4f5;
+  border-color: #e4e4e7;
+}
+.theme-paper .reader-sentence-active {
+  background-color: #dcfce7;
+  color: #052e16;
+  border-left: 4px solid #16a34a;
+  padding-left: 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+}
+
+.theme-slate {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+.theme-slate .reader-card {
+  background-color: #1e293b;
+  border-color: #334155;
+}
+.theme-slate .reader-sentence-active {
+  background-color: rgba(59, 130, 246, 0.25);
+  color: #ffffff;
+  border-left: 4px solid #3b82f6;
+  padding-left: 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Styling đoạn văn chuẩn sách nói E-Book */
+article.book-page-body p {
+  text-indent: 1.5em;
+  margin-bottom: 1.25em;
+  text-align: justify;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.5);
+}
