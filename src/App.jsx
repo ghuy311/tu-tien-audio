@@ -31,7 +31,7 @@ export default function App() {
     fontSize: 19,
     fontFamily: 'lora',
     theme: 'dark',
-    sentencePause: 300,
+    sentencePause: 0,
     lineHeight: 2.0,
     letterSpacing: 0
   });
@@ -100,7 +100,7 @@ export default function App() {
     }
   }, [selectedBookId, currentChapterIndex]);
 
-  const activePauseDelay = settings.sentencePause ?? 300;
+  const activePauseDelay = settings.sentencePause ?? 0;
 
   // Ref lưu trạng thái đang phát audio để tự động next phát tiếp chương sau
   const isPlayingRef = useRef(false);
@@ -119,7 +119,7 @@ export default function App() {
       if (shouldAutoplay) {
         setTimeout(() => {
           ttsRef.current?.play(0);
-        }, 200);
+        }, 50);
       }
     }
   }, [currentBook, currentChapterIndex, selectedBookId]);

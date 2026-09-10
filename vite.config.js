@@ -4,10 +4,19 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  server: {
+    watch: {
+      usePolling: true,
+      interval: 100
+    }
+  },
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
+      devOptions: {
+        enabled: false
+      },
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {

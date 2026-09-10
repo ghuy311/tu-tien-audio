@@ -15,7 +15,7 @@ export function isVietnameseVoice(voice) {
   );
 }
 
-export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSentencePause = 300, initialVoiceURI = '') {
+export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSentencePause = 0, initialVoiceURI = '') {
   const [voices, setVoices] = useState([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState(initialVoiceURI);
   const [hasVietnameseVoice, setHasVietnameseVoice] = useState(false);
@@ -32,8 +32,7 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
   const pitchRef = useRef(pitch);
   const selectedVoiceURIRef = useRef(selectedVoiceURI);
   const sentencesRef = useRef(sentences);
-  const sentencePauseRef = useRef(sentencePause);
-  const pauseTimerRef = useRef(null);
+  const sentenceRangesRef = useRef([]);
 
   currentSentenceRef.current = currentSentenceIndex;
   isPlayingRef.current = isPlaying;
@@ -41,22 +40,6 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
   pitchRef.current = pitch;
   selectedVoiceURIRef.current = selectedVoiceURI;
   sentencesRef.current = sentences;
-  sentencePauseRef.current = sentencePause;
-
-  const clearPauseTimer = () => {
-    if (pauseTimerRef.current) {
-      clearTimeout(pauseTimerRef.current);
-      pauseTimerRef.current = null;
-    }
-  };
-
-  // Đồng bộ initialSentencePause (bao gồm 0ms)
-  useEffect(() => {
-    if (initialSentencePause !== undefined) {
-      setSentencePause(initialSentencePause);
-      sentencePauseRef.current = initialSentencePause;
-    }
-  }, [initialSentencePause]);
 
   useEffect(() => {
     const updateVoices = () => {
@@ -102,25 +85,45 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
     }
   }, [initialVoiceURI, voices]);
 
-  const speakSentence = useCallback((index) => {
+  // Tính toán phạm vi chỉ số ký tự (Character Ranges) cho từng câu trong chương
+  const calculateRanges = (sentencesArr) => {
+    let fullText = '';
+    const ranges = [];
+
+    for (let i = 0; i < sentencesArr.length; i++) {
+      const s = sentencesArr[i];
+      const start = fullText.length;
+      fullText += s + ' ';
+      const end = fullText.length;
+      ranges.push({ index: i, start, end, text: s });
+    }
+
+    return { fullText, ranges };
+  };
+
+  // Khởi chạy phát luồng âm thanh liên tục (Single Continuous Stream) từ câu `startIndex`
+  const startPlaybackFrom = useCallback((startIndex) => {
     if (!('speechSynthesis' in window)) return;
 
-    clearPauseTimer();
     window.speechSynthesis.cancel();
 
     const targetSentences = sentencesRef.current;
-    if (!targetSentences || index < 0 || index >= targetSentences.length) {
+    if (!targetSentences || startIndex < 0 || startIndex >= targetSentences.length) {
       setIsPlaying(false);
       setIsPaused(false);
-      if (index >= targetSentences.length && targetSentences.length > 0) {
+      if (startIndex >= targetSentences.length && targetSentences.length > 0) {
         if (onChapterEnd) onChapterEnd();
       }
       return;
     }
 
-    const textToSpeak = targetSentences[index];
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    const { fullText, ranges } = calculateRanges(targetSentences);
+    sentenceRangesRef.current = ranges;
 
+    const startCharOffset = ranges[startIndex] ? ranges[startIndex].start : 0;
+    const textToSpeak = fullText.substring(startCharOffset);
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = rateRef.current;
     utterance.pitch = pitchRef.current;
 
@@ -133,36 +136,38 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
     utterance.onstart = () => {
       setIsPlaying(true);
       setIsPaused(false);
-      setCurrentSentenceIndex(index);
-      if (onSentenceChange) onSentenceChange(index);
+      setCurrentSentenceIndex(startIndex);
+      currentSentenceRef.current = startIndex;
+      if (onSentenceChange) onSentenceChange(startIndex);
+    };
+
+    // Theo dõi mốc vị trí đọc theo thời gian thực (Real-time Word/Sentence Boundary Tracking)
+    utterance.onboundary = (e) => {
+      if (!isPlayingRef.current) return;
+      const currentCharIdx = startCharOffset + e.charIndex;
+
+      const matchedRange = ranges.find(r => currentCharIdx >= r.start && currentCharIdx < r.end);
+      if (matchedRange && matchedRange.index !== currentSentenceRef.current) {
+        setCurrentSentenceIndex(matchedRange.index);
+        currentSentenceRef.current = matchedRange.index;
+        if (onSentenceChange) onSentenceChange(matchedRange.index);
+      }
     };
 
     utterance.onend = () => {
       if (isPlayingRef.current) {
-        const nextIdx = index + 1;
-        if (nextIdx < targetSentences.length) {
-          const pauseDelay = sentencePauseRef.current || 0;
-          if (pauseDelay > 0) {
-            pauseTimerRef.current = setTimeout(() => {
-              if (isPlayingRef.current) {
-                speakSentence(nextIdx);
-              }
-            }, pauseDelay);
-          } else {
-            speakSentence(nextIdx);
-          }
-        } else {
-          setIsPlaying(false);
-          setIsPaused(false);
-          if (onChapterEnd) onChapterEnd();
-        }
+        setIsPlaying(false);
+        setIsPaused(false);
+        if (onChapterEnd) onChapterEnd();
       }
     };
 
     utterance.onerror = (e) => {
-      console.error('Lỗi TTS:', e);
-      setIsPlaying(false);
-      setIsPaused(false);
+      if (e.error !== 'canceled' && e.error !== 'interrupted') {
+        console.error('Lỗi TTS:', e);
+        setIsPlaying(false);
+        setIsPaused(false);
+      }
     };
 
     window.speechSynthesis.speak(utterance);
@@ -174,12 +179,11 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
       setIsPlaying(true);
       setIsPaused(false);
     } else {
-      speakSentence(index);
+      startPlaybackFrom(index);
     }
-  }, [speakSentence]);
+  }, [startPlaybackFrom]);
 
   const pause = useCallback(() => {
-    clearPauseTimer();
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.pause();
     setIsPlaying(false);
@@ -187,7 +191,6 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
   }, []);
 
   const stop = useCallback(() => {
-    clearPauseTimer();
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     setIsPlaying(false);
@@ -195,8 +198,8 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
   }, []);
 
   const jumpToSentence = useCallback((index) => {
-    speakSentence(index);
-  }, [speakSentence]);
+    startPlaybackFrom(index);
+  }, [startPlaybackFrom]);
 
   const nextSentence = useCallback(() => {
     jumpToSentence(currentSentenceRef.current + 1);
@@ -218,34 +221,32 @@ export function useTTS(sentences = [], onSentenceChange, onChapterEnd, initialSe
     setRate(newRate);
     rateRef.current = newRate;
     if (isPlayingRef.current) {
-      speakSentence(currentSentenceRef.current);
+      startPlaybackFrom(currentSentenceRef.current);
     }
-  }, [speakSentence]);
+  }, [startPlaybackFrom]);
 
   const changePitch = useCallback((newPitch) => {
     setPitch(newPitch);
     pitchRef.current = newPitch;
     if (isPlayingRef.current) {
-      speakSentence(currentSentenceRef.current);
+      startPlaybackFrom(currentSentenceRef.current);
     }
-  }, [speakSentence]);
+  }, [startPlaybackFrom]);
 
   const changeVoice = useCallback((voiceURI) => {
     setSelectedVoiceURI(voiceURI);
     selectedVoiceURIRef.current = voiceURI;
     if (isPlayingRef.current) {
-      speakSentence(currentSentenceRef.current);
+      startPlaybackFrom(currentSentenceRef.current);
     }
-  }, [speakSentence]);
+  }, [startPlaybackFrom]);
 
   const changeSentencePause = useCallback((pauseMs) => {
     setSentencePause(pauseMs);
-    sentencePauseRef.current = pauseMs;
   }, []);
 
   useEffect(() => {
     return () => {
-      clearPauseTimer();
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }

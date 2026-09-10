@@ -33,11 +33,19 @@ export function ReaderView({
   }, [chapterContent, book, currentChapterIndex]);
 
   useEffect(() => {
-    if (currentSentenceIndex >= 0 && sentenceRefs.current[currentSentenceIndex]) {
-      sentenceRefs.current[currentSentenceIndex].scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
+    const el = sentenceRefs.current[currentSentenceIndex];
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const isVisible = (
+        rect.top >= 100 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) - 120
+      );
+      if (!isVisible) {
+        el.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }
     }
   }, [currentSentenceIndex, currentChapterIndex, chapterContent]);
 
