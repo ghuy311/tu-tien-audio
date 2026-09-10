@@ -156,7 +156,7 @@ export function ReaderView({
         {/* Chapter Header in Book (Highlighted when Sentence 0 Title is being spoken) */}
         <div className="mb-8 text-center border-b border-black/10 dark:border-white/10 pb-6">
           <span className="text-[11px] font-bold tracking-widest uppercase opacity-50 block mb-1">
-            Chương {currentChapterIndex + 1} / {totalChapters}
+            {/^Chương\s+\d+/i.test(chapterTitle) ? `Trang ${currentChapterIndex + 1} / ${totalChapters}` : `Chương ${currentChapterIndex + 1} / ${totalChapters}`}
           </span>
           <h1
             ref={(el) => (sentenceRefs.current[0] = el)}
